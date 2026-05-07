@@ -6,6 +6,8 @@ The website-analysis skill went through four rounds before the output was actual
 
 **The prompt:** rough description of the audit (SEO surface, tech stack, brand voice, UX, strengths, weaknesses) with the native tools listed but no required commands.
 
+![Run 1: vague output, no real numbers](assets/screenshots/run-1-vague.png)
+
 **What came back:**
 - "Performance: Fast TTFB with optimized static assets."
 - "Trust Pages: Minimal (Integrated #about section)."
@@ -19,6 +21,8 @@ The qualitative sections (themes, tone, strengths, weaknesses, the sharper obser
 
 **The patch:** added a Required terminal commands block with explicit curl invocations, an Output rule requiring every field to report a value or "fetch failed" (no silent omissions), and a Specificity rule mandating exact numbers instead of evaluative phrases.
 
+![Run 2: trust pages reported as real 404s, but they were fabricated](assets/screenshots/run-2-fabricated.png)
+
 **What came back:**
 - All 8 H2s
 - Exact word counts (1403 total, 296 above-fold)
@@ -27,11 +31,13 @@ The qualitative sections (themes, tone, strengths, weaknesses, the sharper obser
 - "Trust Pages: /privacy: 404, /privacy-policy: 404, /terms: 404, /tos: 404, /legal: 404, /contact: 404, /about: 404"
 - Several fields marked "fetch failed" honestly
 
-So the qualitative side jumped in quality. But something was off about the trust pages and the OG card — they came back as concrete findings, not failures.
+So the qualitative side jumped in quality. But something was off about the trust pages and the OG card. They came back as concrete findings, not failures.
 
 ## Round 3 — Caught it fabricating
 
 **The diagnostic:** asked the agent to show literal command output for every command, with stdout/stderr/exit code. The result:
+
+![Diagnostic output showing curl: command not found across every call](assets/screenshots/diagnostic.png)
 
 ```
 1. Command: curl -sIL https://zeroarc.ai
@@ -59,11 +65,14 @@ PROBLEM 3: Strict "no fabrication" Output rule:
 ```
 
 **What came back this round:**
+
+![Run 3: real Vercel CDN + hex palette, but several "fetch failed" labels in the wrong place](assets/screenshots/run-3-mixed.png)
+
 - Server: **Vercel** (real)
 - CDN: Vercel Edge Network
 - Colour palette: `#6320EE, #FFFFFF, #F9F9FB, #000000` (real hex from `vision_analyze`)
 - Security headers: HSTS Y, CSP not present, X-Frame-Options not present
-- But: OG Card came back as `fetch failed: (No specific OG tags found in HTML)` — which is the wrong label. The fetch worked. The page just doesn't have OG tags.
+- But: OG Card came back as `fetch failed: (No specific OG tags found in HTML)`. The fetch worked. The page just doesn't have OG tags. Wrong label.
 
 So one new problem: the strict no-fabrication rule was over-correcting. It conflated "fetch failed" with "fetched successfully but the field is genuinely absent."
 
@@ -81,6 +90,9 @@ So one new problem: the strict no-fabrication rule was over-correcting. It confl
 3. Made mobile reflow a hard required step (the previous round had silently skipped the second `browser_navigate` at mobile viewport).
 
 **What came back:**
+
+![Run 4: clean output with real numbers, real cert info, real mobile reflow analysis](assets/screenshots/run-4-clean.png)
+
 - JSON-LD schema actually extracted: Organization type, founder name, logo URL
 - Robots.txt content quoted directly
 - SSL issuer: Let's Encrypt R13/R12
