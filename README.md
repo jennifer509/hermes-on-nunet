@@ -55,7 +55,7 @@ Each skill's ITERATIONS doc shows how those rules emerged from real failures, no
 
 ## Built on
 
-These skills run on [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous Research). For an alpha agent platform that does this kind of operator-friendly setup at the platform level, see [agents.nunet.network](https://agents.nunet.network) — runs on NuNet's distributed compute network, currently in alpha.
+These skills run on [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous Research). For an alpha agent platform that does this kind of operator-friendly setup at the platform level, see [community.nunet.io/agents](https://community.nunet.io/agents), running on NuNet's distributed compute network. Currently in alpha, sign-ups open.
 
 ## License
 

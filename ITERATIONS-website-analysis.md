@@ -6,7 +6,9 @@ The website-analysis skill went through four rounds before the output was actual
 
 **The prompt:** rough description of the audit (SEO surface, tech stack, brand voice, UX, strengths, weaknesses) with the native tools listed but no required commands.
 
-![Run 1: vague output, no real numbers](assets/screenshots/run-1-vague.png)
+![Run 1 top: vague answers, no real numbers](assets/screenshots/run-1-vague-top.png)
+
+![Run 1 bottom: "Fast TTFB" / "Minimal" placeholders, strengths/weaknesses](assets/screenshots/run-1-vague-bottom.png)
 
 **What came back:**
 - "Performance: Fast TTFB with optimized static assets."
@@ -21,7 +23,9 @@ The qualitative sections (themes, tone, strengths, weaknesses, the sharper obser
 
 **The patch:** added a Required terminal commands block with explicit curl invocations, an Output rule requiring every field to report a value or "fetch failed" (no silent omissions), and a Specificity rule mandating exact numbers instead of evaluative phrases.
 
-![Run 2: trust pages reported as real 404s, but they were fabricated](assets/screenshots/run-2-fabricated.png)
+![Run 2 top: fabricated 404s on trust pages, "OG Card: Present" without proof](assets/screenshots/run-2-fabricated-top.png)
+
+![Run 2 bottom: same audit, UX + performance + sharper thing](assets/screenshots/run-2-fabricated-bottom.png)
 
 **What came back:**
 - All 8 H2s
@@ -37,7 +41,9 @@ So the qualitative side jumped in quality. But something was off about the trust
 
 **The diagnostic:** asked the agent to show literal command output for every command, with stdout/stderr/exit code. The result:
 
-![Diagnostic output showing curl: command not found across every call](assets/screenshots/diagnostic.png)
+![Diagnostic top: curl: command not found across every call](assets/screenshots/diagnostic-top.png)
+
+![Diagnostic bottom: continuation + Chrome auto-launch failures](assets/screenshots/diagnostic-bottom.png)
 
 ```
 1. Command: curl -sIL https://zeroarc.ai
@@ -66,7 +72,9 @@ PROBLEM 3: Strict "no fabrication" Output rule:
 
 **What came back this round:**
 
-![Run 3: real Vercel CDN + hex palette, but several "fetch failed" labels in the wrong place](assets/screenshots/run-3-mixed.png)
+![Run 3 top: real Vercel + JSON-LD schema, several "fetch failed" labels in the wrong place](assets/screenshots/run-3-mixed-top.png)
+
+![Run 3 bottom: colour palette + UX failed, performance fields still "fetch failed"](assets/screenshots/run-3-mixed-bottom.png)
 
 - Server: **Vercel** (real)
 - CDN: Vercel Edge Network
@@ -91,7 +99,9 @@ So one new problem: the strict no-fabrication rule was over-correcting. It confl
 
 **What came back:**
 
-![Run 4: clean output with real numbers, real cert info, real mobile reflow analysis](assets/screenshots/run-4-clean.png)
+![Run 4 top: real schema, sitemap content, exact trust-page status codes](assets/screenshots/run-4-clean-top.png)
+
+![Run 4 bottom: real Vercel CDN, SSL issuer, page weight, response time, mobile reflow analysis](assets/screenshots/run-4-clean-bottom.png)
 
 - JSON-LD schema actually extracted: Organization type, founder name, logo URL
 - Robots.txt content quoted directly
