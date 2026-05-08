@@ -1,6 +1,6 @@
 # website-analysis: iteration log
 
-The website-analysis skill went through four rounds before the output was actually trustworthy. Each round caught a specific failure mode. This log walks through what went wrong and which patch fixed it, so anyone forking the skill can see the reasoning instead of just the final prompt.
+The website-analysis skill went through five rounds before the output was actually trustworthy. Each round caught a specific failure mode. This log walks through what went wrong and which patch fixed it, so anyone forking the skill can see the reasoning instead of just the final prompt.
 
 ## Round 1 — Pretty but shallow
 
@@ -111,9 +111,34 @@ So one new problem: the strict no-fabrication rule was over-correcting. It confl
 
 This is the version shipped as v4 in [skills/website-analysis.md](skills/website-analysis.md).
 
+## Round 5 — Caught it under-reporting trackers
+
+**The diagnostic:** ran the v4 skill against a site I knew was carrying a Meta Pixel and Hotjar. The audit reported "not present" for both. Pulled DevTools manually and the pixels were obviously there — they were getting injected by Google Tag Manager after the initial HTML response. v4's curl-based tech-stack check was reading the GTM container script in the static HTML but never executing it, so the downstream pixels (and everything else GTM was loading) stayed invisible to the audit.
+
+**The patch:** added a Required dynamic-fingerprinting block. After `browser_navigate`, the agent runs a JavaScript payload via `browser_console` that queries the runtime `window` object for known tracking signatures (`ga`, `gtag`, `dataLayer`, `fbq`, `ttq`, `snaptr`, `hotjar`, `clarity`) and scans the live DOM for script tags whose `src` matches `pixel|analytics|tag`. The check executes in the page context, so anything Tag Manager injected after load is now visible.
+
+The Tech stack signals section was rewritten to require BOTH layers — static (curl) and dynamic (browser_console). The audit reports the static finds first, then the runtime signals.
+
+**What came back on the rerun:**
+
+- `fbq: Y` (was "not present" in v4)
+- `hotjar: Y` (was "not present" in v4)
+- `dataLayer: Y` (already caught by v4 — GTM container was in the static HTML)
+- `injected_scripts: ["https://connect.facebook.net/en_US/fbevents.js", "https://static.hotjar.com/c/hotjar-..."]`
+
+The same site went from "looks like they're not running tracking" to a full picture of the conversion-tracking stack.
+
+**What it taught:**
+
+A fourth rule, on top of the three from v4:
+
+4. **An agent's audit reflects its execution context, not the website.** If your skill only inspects what curl returns, you're auditing the server response — not the user experience. Anything injected after page load (analytics, pixels, A/B variants, cookie banners that swap content, lazy-rendered components) is invisible. Any "tech stack" claim needs a runtime DOM check, not just a static HTML read. This is the same root pattern as the curl-not-installed fabrication from Round 3 — the agent reports the absence as truth instead of admitting the limit.
+
+This patch shipped as v5 in [skills/website-analysis.md](skills/website-analysis.md).
+
 ## What the iterations taught
 
-Three rules that turned out to be load-bearing for any agent skill that uses external tools:
+Four rules that turned out to be load-bearing for any agent skill that uses external tools:
 
 1. **An agent will fabricate plausible values when its tools fail, unless you forbid it explicitly.** The strict no-fabrication rule isn't optional. Without it, half your "findings" are dressed-up guesses.
 
@@ -121,11 +146,14 @@ Three rules that turned out to be load-bearing for any agent skill that uses ext
 
 3. **"Fetch failed" and "not present" are different findings, and the agent needs to be taught the difference.** Treating them the same means you can't tell which gaps are real and which are environmental.
 
-These three rules are now baked into every skill in this repo.
+4. **An agent's audit reflects its execution context, not the website.** Static fetchers see server responses. Dynamic fetchers see runtime DOM. Anything injected post-load is invisible to the first kind. Pick the layer that matches the claim you're making.
 
-## Known minor gaps in v4
+These four rules are now baked into every skill in this repo.
+
+## Known minor gaps in v5
 
 - **Fonts detection** sometimes returns "not present" when the site uses fonts. The grep pattern misses font declarations inside CSS modules.
 - **Trust pages check** doesn't catch in-page anchor sections (e.g. `#contact` on a single-page site). The 404s are real but the audit reads as more compliance-thin than reality.
+- **Dynamic fingerprinting signature list** is finite (8 known trackers + an `injected_scripts` regex). New tools or rebrands won't be caught until the signature list is updated. Treat it as a known floor, not a ceiling.
 
-If you fork and fix either, open a PR.
+If you fork and fix any of these, open a PR.

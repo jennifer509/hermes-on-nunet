@@ -10,7 +10,7 @@ If you're new to Hermes, run through the [Hermes Agent setup](https://github.com
 
 | Skill | What it does | Native tools used |
 |-------|--------------|-------------------|
-| [website-analysis](skills/website-analysis.md) | Deep website audit (SEO, tech stack, brand voice, UX, performance) without third-party API keys | `terminal`, `web_extract`, `browser_navigate`, `browser_snapshot`, `vision_analyze`, `web_search` |
+| [website-analysis](skills/website-analysis.md) | Deep website audit (SEO, tech stack, brand voice, UX, performance) — static + dynamic fingerprinting, no third-party API keys | `terminal`, `web_extract`, `browser_navigate`, `browser_snapshot`, `browser_console`, `vision_analyze`, `web_search` |
 
 More coming. Each new skill ships with its own iteration log so you can see what went wrong on the way to working.
 
