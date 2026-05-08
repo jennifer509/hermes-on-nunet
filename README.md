@@ -10,7 +10,7 @@ If you're new to Hermes, run through the [Hermes Agent setup](https://github.com
 
 | Skill | What it does | Native tools used |
 |-------|--------------|-------------------|
-| [website-analysis](skills/website-analysis.md) (v6) | Deep website audit (SEO, tech stack, brand voice, UX, performance) — four-pass dynamic fingerprinting handles consent banners, scroll-gated trackers, and SPAs | `terminal`, `web_extract`, `browser_navigate`, `browser_snapshot`, `browser_console`, `vision_analyze`, `web_search` |
+| [website-analysis](skills/website-analysis.md) (v7) | Deep website audit (SEO, tech stack, brand voice, UX, performance) — four-pass dynamic fingerprinting handles consent banners, scroll-gated trackers, and SPAs. Guardrails: identifiable UA, robots.txt pre-flight, rate limits, bail-out on 429/403 | `terminal`, `web_extract`, `browser_navigate`, `browser_snapshot`, `browser_console`, `vision_analyze`, `web_search` |
 
 More coming. Each new skill ships with its own iteration log so you can see what went wrong on the way to working.
 
@@ -60,6 +60,35 @@ Across multiple iterations of building these skills, three things keep showing u
 3. **"Fetch failed" and "not present" are different findings.** Until you teach the distinction, an agent treats them the same way and the audit becomes useless.
 
 Each skill's ITERATIONS doc shows how those rules emerged from real failures, not from theory.
+
+## Things to know before running these
+
+Each skill in this repo makes HTTP requests against third-party sites. Each audit fires roughly 12-20 requests. Each comparison or monitor run multiplies that. Without thinking about it, that traffic looks identical to a scraper — and the host running the skill can land on IP-reputation blocklists (Spamhaus, Cloudflare, Sucuri), which affects every workload on the host, not just the audit.
+
+I caught this myself after v6 shipped and the repo started getting picked up. Before more people installed the skill, I patched it. v7+ has six guardrails layered in.
+
+### What's baked in (so you don't have to remember)
+
+- **Identifiable user-agent on every request.** `User-Agent: HermesAudit/v<n> (+https://github.com/jennifer509/hermes-on-nunet)`. Site operators can see what's hitting them, allow or block it cleanly, and reach me if needed. The skills never spoof a browser UA.
+- **Robots.txt pre-flight.** Before the first audit request, the agent fetches `robots.txt` and checks whether the path is `Disallow`ed. If so, it stops and asks for explicit confirmation. No silent override.
+- **Sleeps between request groups.** ~6-10 seconds of pacing per audit on top of network time. Imperceptible to a real user. Significant to a WAF watching for back-to-back-to-back requests.
+- **Hard caps per host.** 1 audit per URL per 24h. 10 unique URLs per host per 24h. The skills track this themselves — re-running a recent audit IS the pattern that gets blocklisted.
+- **Bail-out on 429, 403, 503.** No retry-storms. No swapping UAs to evade a 403. If a site bans the audit, that's the audit result.
+- **Scope rule in the prompt itself.** Each skill's intro lists what to audit and what never to audit, and explicitly names the IP-reputation risk. Lives where the agent reads it, not in a README the user might skip.
+
+### What only you can do
+
+- **Pick the right targets.** Audit sites you own, sites you have written permission for, or public-facing marketing pages of public companies. Don't audit personal blogs, gov/healthcare/financial sites you have no engagement with, or anything you'd be uncomfortable defending if challenged. The skill can't know whether you have permission — it can only ask.
+- **Don't override the robots.txt confirmation unless you actually have written permission.** The pre-flight asks because the site asked. Saying yes anyway is on you, not the skill.
+- **Watch the per-host cap when you stack skills.** v7 enforces caps within each skill. If you're running `website-analysis` AND `competitor-compare` AND `content-monitor` against the same domain in the same window, the per-skill caps don't aggregate. v8 patch on the way (a shared `~/hermes-audit-ledger.json`).
+
+### If you're running on a NuNet compute node
+
+The IP is shared with other workloads on the same node. Bad audit behaviour can land *other* people's deployments on a blocklist. Be especially conservative — when in doubt, audit one URL, sleep, audit another. Five minutes saved isn't worth a co-tenant's outage.
+
+### Where this came from
+
+v7 isn't a regression of v6 — it's the same skill plus six guardrails that protect both you and everyone else running on your host. Round 7 in [`ITERATIONS-website-analysis.md`](ITERATIONS-website-analysis.md) walks through the reasoning. Short version: I built a tool that worked, but didn't think about what its requests looked like from the target's perspective. v7 fixes that, before more people pick up v6.
 
 ## Built on
 

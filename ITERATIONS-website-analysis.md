@@ -1,6 +1,6 @@
 # website-analysis: iteration log
 
-The website-analysis skill went through six rounds before the output was actually trustworthy. Each round caught a specific failure mode. This log walks through what went wrong and which patch fixed it, so anyone forking the skill can see the reasoning instead of just the final prompt.
+The website-analysis skill went through seven rounds before the output was actually trustworthy. Each round caught a specific failure mode. This log walks through what went wrong and which patch fixed it, so anyone forking the skill can see the reasoning instead of just the final prompt.
 
 ## Round 1 — Pretty but shallow
 
@@ -169,9 +169,43 @@ A fifth rule, on top of the four from v5:
 
 This patch shipped as v6 in [skills/website-analysis.md](skills/website-analysis.md).
 
+## Round 7 — Caught myself making it everyone else's problem
+
+v6 went up. The repo got picked up. People started installing the skill. And I realised: I'd built an audit tool that fires ~12-20 HTTP requests per run, with no rate-limiting, no robots.txt check, and no identifiable user-agent. If five operators ran it against the same target host the same week, all five could land on a Cloudflare blocklist by the end of it — and none of them would know why their other workloads suddenly stopped working.
+
+The skill was right about the audit. It was wrong about the externality.
+
+Every round before this one was about the report's accuracy: did it lie, did it fabricate, did it skip the technical work, did it miss what loaded after the page rendered. None of those rounds asked: "what does this look like from the target's perspective, and what's the second-order risk to the host running the skill?"
+
+"Native tools, no API keys" doesn't mean "no consequences." It means the consequences don't show up in a billing alert. They show up later, when your IP is suddenly returning 403 on every site, or your co-tenant's deployment goes dark because the shared host got blocklisted.
+
+So before more people installed the skill, I patched it.
+
+**The patches** (six, layered):
+
+1. **Identifiable user-agent.** Every curl now sends `User-Agent: HermesAudit/v7 (+https://github.com/jennifer509/hermes-on-nunet)`. Site operators can see what's hitting them, allow or block it cleanly, and contact me if needed. The skill never spoofs a browser UA — that's the move that gets a tool escalated to outright bans rather than negotiated allow-lists.
+
+2. **Mandatory robots.txt pre-flight.** Before any other request, the agent reads `robots.txt`, checks whether the path is `Disallow`ed, and if so it stops and asks the user for explicit confirmation. No silent override. Most sites allow most paths; the rare disallows are the ones you need to know about anyway.
+
+3. **Sleeps between request groups.** 1 second between curl groups, 0.5 second inside the trust-page loop, 2 seconds between browser passes. Adds ~6-10 seconds to a 30-second audit. Imperceptible to the user. Significant to a WAF watching for back-to-back-to-back requests with millisecond gaps.
+
+4. **Hard caps per host.** 1 audit per URL per 24 hours, 10 unique URLs per host per 24 hours. The "let me run it again to verify" pattern is exactly the pattern that gets you blocked. Wait a day or change targets.
+
+5. **Bail-out on 429 / 403 / 503.** No retry-storms. No "let me try a different user-agent" to evade a 403. If a site bans the audit, that IS the audit result. Logged honestly, reported back to the user, no partial-credit attempt to scrape what we can.
+
+6. **Scope rule baked into the prompt itself.** The skill's intro now lists what to audit, what never to audit, and names the IP-reputation risk explicitly. The agent reads the prompt at session start; the rules live in its operating context, not in a README the user might never read.
+
+**What it taught:**
+
+A sixth rule, on top of the five from v6:
+
+6. **An agent skill that touches external resources has externalities the operator pays for.** The audit's report is the visible output. The invisible output is impact on the target's WAF logs and the host's IP reputation. "Native tools, no API keys" doesn't mean "no consequences" — it means the consequences don't show up in a billing alert and have to be designed out at the prompt level, before the skill ships.
+
+This patch shipped as v7 in [skills/website-analysis.md](skills/website-analysis.md).
+
 ## What the iterations taught
 
-Five rules that turned out to be load-bearing for any agent skill that uses external tools:
+Six rules that turned out to be load-bearing for any agent skill that uses external tools:
 
 1. **An agent will fabricate plausible values when its tools fail, unless you forbid it explicitly.** The strict no-fabrication rule isn't optional. Without it, half your "findings" are dressed-up guesses.
 
@@ -183,14 +217,17 @@ Five rules that turned out to be load-bearing for any agent skill that uses exte
 
 5. **A page is not a snapshot, it's a sequence of states.** Pre-consent / post-consent / post-scroll / hydrated / partially-hydrated. Picking one state and reporting it as "the site" is the same root error as treating curl-failure as fact. Walk the sequence, don't freeze the first frame.
 
-These five rules are now baked into every skill in this repo.
+6. **An agent skill that touches external resources has externalities the operator pays for.** The audit's report is the visible output. The invisible output is impact on the target's WAF logs and the host's IP reputation. "Native tools, no API keys" doesn't mean "no consequences" — it means the consequences don't show up in a billing alert and have to be designed out at the prompt level.
 
-## Known minor gaps in v6
+These six rules are now baked into every skill in this repo.
+
+## Known minor gaps in v7
 
 - **Fonts detection** sometimes returns "not present" when the site uses fonts. The grep pattern misses font declarations inside CSS modules.
 - **Trust pages check** doesn't catch in-page anchor sections (e.g. `#contact` on a single-page site). The 404s are real but the audit reads as more compliance-thin than reality.
 - **Consent banner clicker** uses a regex-on-visible-button-text heuristic. Sites with shadow-DOM consent UIs (some OneTrust / Cookiebot configurations) won't be caught. Falls back to honest reporting (`consent_pass: not present`) rather than failing.
 - **Dynamic fingerprinting signature list** is finite. New trackers or rebrands won't be caught until the signature list is updated. Floor, not ceiling.
-- **Interaction beyond scroll** — pixels triggered by hover, form-focus, video-play, or button-click (other than the consent banner) are still invisible. v7 territory if it next bites.
+- **Interaction beyond scroll** — pixels triggered by hover, form-focus, video-play, or button-click (other than the consent banner) are still invisible. v8 territory if it next bites.
+- **Cross-skill rate-limit aggregation.** Per-host caps are enforced inside each skill. They don't aggregate across skills running on the same host. A `~/hermes-audit-ledger.json` shared across skills would close this — v8+ patch.
 
 If you fork and fix any of these, open a PR.
