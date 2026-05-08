@@ -1,6 +1,6 @@
 # website-analysis: iteration log
 
-The website-analysis skill went through five rounds before the output was actually trustworthy. Each round caught a specific failure mode. This log walks through what went wrong and which patch fixed it, so anyone forking the skill can see the reasoning instead of just the final prompt.
+The website-analysis skill went through six rounds before the output was actually trustworthy. Each round caught a specific failure mode. This log walks through what went wrong and which patch fixed it, so anyone forking the skill can see the reasoning instead of just the final prompt.
 
 ## Round 1 — Pretty but shallow
 
@@ -136,9 +136,42 @@ A fourth rule, on top of the three from v4:
 
 This patch shipped as v5 in [skills/website-analysis.md](skills/website-analysis.md).
 
+## Round 6 — Caught it stopping at the front door
+
+**The diagnostic:** posted v5 publicly. A LinkedIn commenter flagged the next case I hadn't thought through: cookie consent banners. v5's dynamic fingerprint runs once, immediately after page load. If a site holds its trackers behind a consent banner, the banner is still up when the fingerprint fires and none of the gated trackers have loaded yet. The audit reads "tracking: minimal" — which is technically true at audit-time but useless as a real read of the site.
+
+Same problem on the other side: trackers that only fire on scroll, on form focus, or after some user signal. The audit was a snapshot of "what happens if you arrive and immediately leave." That's not the audit anyone actually wants.
+
+Underneath both of those: SPA-rendered content. If the page is a Next.js / Nuxt / Remix app, the static HTML is mostly an empty shell. Curl reads "above-fold word count: 12" because nothing has rendered yet. The audit was treating the empty shell as the truth and reporting the site as content-thin.
+
+Three different surfaces of the same root failure: the audit was a single moment in page life, treated as the whole picture.
+
+**The patch:** turned the dynamic fingerprint into a four-pass sequence.
+
+1. Initial fingerprint — same as v5, runs immediately after `browser_navigate`.
+2. Consent dismissal — agent scans the visible DOM for buttons matching a regex of common consent-banner phrasings (`accept`, `allow all`, `i agree`, `got it`, etc.), clicks the first match, then re-fingerprints. If no candidate is found, the pass reports `not present` and moves on.
+3. Scroll trigger — agent scrolls to bottom, re-fingerprints. Catches lazy-loaded trackers and below-fold dynamic content.
+4. Synthesise — compare the three fingerprints, report each tracker as `Y (initial) / Y (after consent) / Y (after scroll) / N`, with a `triggered_by` note for each.
+
+Added an SPA-detection field to the fingerprint: looks for `window.__NEXT_DATA__`, `window.__NUXT__`, `window.__REMIX_CONTEXT__`, `window.__sveltekit_data`, plus loose `window.React` / `window.Vue` checks. Plus a `body_text_len` delta — if the runtime DOM has 2x+ the text the static HTML had, the site is JS-rendered and any text-based extraction MUST come from the runtime, not curl.
+
+**What came back on the rerun:**
+
+- The original test site now showed `fbq: Y (after consent)` and `hotjar: Y (after consent)` — both gated behind a OneTrust banner that the click handler dismissed
+- A separate Next.js site that had been auditing as "content-thin" (~80-word above-fold count) jumped to 600+ words once the SPA hydrated. The H2s and CTA copy that v5 missed were now in the audit.
+- A third site that runs a TikTok pixel only after scroll triggered properly: `ttq: Y (after scroll)`
+
+**What it taught:**
+
+A fifth rule, on top of the four from v5:
+
+5. **A page is not a snapshot.** It's a sequence of states: pre-consent / post-consent / post-scroll / post-interaction / hydrated / partially-hydrated. The audit must walk the sequence, not freeze the first frame. Picking one state and reporting it as "the site" is the same root error as Round 3 (treating curl-failure as fact) and Round 5 (treating server-response as the runtime DOM): conflating what the agent CAN see with what's there.
+
+This patch shipped as v6 in [skills/website-analysis.md](skills/website-analysis.md).
+
 ## What the iterations taught
 
-Four rules that turned out to be load-bearing for any agent skill that uses external tools:
+Five rules that turned out to be load-bearing for any agent skill that uses external tools:
 
 1. **An agent will fabricate plausible values when its tools fail, unless you forbid it explicitly.** The strict no-fabrication rule isn't optional. Without it, half your "findings" are dressed-up guesses.
 
@@ -148,12 +181,16 @@ Four rules that turned out to be load-bearing for any agent skill that uses exte
 
 4. **An agent's audit reflects its execution context, not the website.** Static fetchers see server responses. Dynamic fetchers see runtime DOM. Anything injected post-load is invisible to the first kind. Pick the layer that matches the claim you're making.
 
-These four rules are now baked into every skill in this repo.
+5. **A page is not a snapshot, it's a sequence of states.** Pre-consent / post-consent / post-scroll / hydrated / partially-hydrated. Picking one state and reporting it as "the site" is the same root error as treating curl-failure as fact. Walk the sequence, don't freeze the first frame.
 
-## Known minor gaps in v5
+These five rules are now baked into every skill in this repo.
+
+## Known minor gaps in v6
 
 - **Fonts detection** sometimes returns "not present" when the site uses fonts. The grep pattern misses font declarations inside CSS modules.
 - **Trust pages check** doesn't catch in-page anchor sections (e.g. `#contact` on a single-page site). The 404s are real but the audit reads as more compliance-thin than reality.
-- **Dynamic fingerprinting signature list** is finite (8 known trackers + an `injected_scripts` regex). New tools or rebrands won't be caught until the signature list is updated. Treat it as a known floor, not a ceiling.
+- **Consent banner clicker** uses a regex-on-visible-button-text heuristic. Sites with shadow-DOM consent UIs (some OneTrust / Cookiebot configurations) won't be caught. Falls back to honest reporting (`consent_pass: not present`) rather than failing.
+- **Dynamic fingerprinting signature list** is finite. New trackers or rebrands won't be caught until the signature list is updated. Floor, not ceiling.
+- **Interaction beyond scroll** — pixels triggered by hover, form-focus, video-play, or button-click (other than the consent banner) are still invisible. v7 territory if it next bites.
 
 If you fork and fix any of these, open a PR.

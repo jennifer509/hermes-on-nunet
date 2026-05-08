@@ -1,4 +1,4 @@
-# Website Analysis Skill (v5)
+# Website Analysis Skill (v6)
 
 Deep website audits for [Hermes Agent](https://github.com/NousResearch/hermes-agent) using only native tools. No third-party API keys. No Ahrefs / SEMrush / Wappalyzer / BuiltWith / SimilarWeb.
 
@@ -11,7 +11,7 @@ Any message containing a URL plus one of: `audit`, `analyze this site`, `deep di
 - `web_extract` — page HTML and main content
 - `terminal` — runs the Required terminal commands block below
 - `browser_navigate` + `browser_snapshot` + `vision_analyze` — visual read at desktop AND mobile viewports
-- `browser_console` — runs the Required dynamic-fingerprinting block (catches GTM-injected pixels static curl misses)
+- `browser_console` — runs the Required dynamic-fingerprinting block (catches GTM-injected pixels, JS-rendered content, consent-gated trackers, scroll-gated trackers)
 - `web_search` — cross-referencing brand mentions and recent press
 
 ## Required terminal commands
@@ -33,7 +33,11 @@ curl -sL <url> | grep -oE 'application/ld\+json[^<]*' | head -5          # schem
 
 ## Required dynamic fingerprinting
 
-After `browser_navigate`, run this JavaScript via `browser_console` to catch tracking pixels and analytics that Tag Managers or async loaders inject after the initial HTML response. Static curl misses these — they only exist in the runtime DOM.
+After `browser_navigate`, run a four-pass fingerprint to catch trackers, analytics, and content that surface at different stages of page life. Each pass runs the same `browser_console` payload; the differences are what's happened on the page before it runs.
+
+### The fingerprint payload
+
+Same JS in every pass. Run it via `browser_console`.
 
 ```javascript
 const signals = {
@@ -45,14 +49,74 @@ const signals = {
   snaptr: typeof window.snaptr !== 'undefined',
   hotjar: typeof window.hotjar !== 'undefined',
   clarity: typeof window.clarity !== 'undefined',
+  spa_framework:
+    typeof window.__NEXT_DATA__ !== 'undefined' ? 'next'
+    : typeof window.__NUXT__ !== 'undefined' ? 'nuxt'
+    : typeof window.__REMIX_CONTEXT__ !== 'undefined' ? 'remix'
+    : typeof window.__sveltekit_data !== 'undefined' ? 'sveltekit'
+    : typeof window.React !== 'undefined' ? 'react (no framework signal)'
+    : typeof window.Vue !== 'undefined' ? 'vue (no framework signal)'
+    : 'none',
+  ready_state: document.readyState,
+  body_text_len: document.body ? document.body.innerText.length : 0,
   injected_scripts: Array.from(document.querySelectorAll('script'))
-    .filter(s => /pixel|analytics|tag/i.test(s.src))
+    .filter(s => s.src && /pixel|analytics|tag|track|gtm|hotjar|clarity|fb|tiktok/i.test(s.src))
     .map(s => s.src),
 };
 JSON.stringify(signals, null, 2);
 ```
 
-Report each signal as Y/N. List `injected_scripts` URLs verbatim. Three-state output rule applies — if `browser_console` itself fails, every signal is `fetch failed: <error>`, not Y/N defaults.
+### The four passes
+
+1. **Initial fingerprint** — run immediately after `browser_navigate`. Captures what's loaded on first paint.
+2. **Post-consent fingerprint** — try to dismiss any cookie/consent banner, then re-fingerprint. Many sites gate trackers behind consent; this catches them.
+3. **Post-scroll fingerprint** — scroll to bottom, wait briefly, re-fingerprint. Catches lazy-loaded trackers, scroll-triggered events, and below-fold dynamic content.
+4. **Final delta** — compare the three fingerprints; report a unified Y/N per signal where ANY pass found it, plus a `triggered_by` note (`initial` / `consent` / `scroll`) for each newly-discovered signal.
+
+### Pass 2 — consent dismissal
+
+Run via `browser_console` after the initial fingerprint:
+
+```javascript
+const acceptPatterns = /^(accept|allow|got it|i agree|i accept|ok|continue|consent|enable|allow all|accept all|accept cookies|i understand)/i;
+const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], [type="submit"]'))
+  .filter(el => el.offsetParent !== null)
+  .filter(el => acceptPatterns.test((el.innerText || '').trim()));
+const target = candidates[0];
+if (target) {
+  target.click();
+  ({ clicked: true, label: target.innerText.trim().slice(0, 60) });
+} else {
+  ({ clicked: false, reason: 'no consent-banner candidate found' });
+}
+```
+
+If `clicked: true`, wait ~1 second (re-issue `browser_navigate` to the same URL with a small delay, OR just run the next fingerprint — by the time `browser_console` returns, most consent-triggered scripts have fired). Re-run the fingerprint payload.
+
+If `clicked: false`, skip to Pass 3.
+
+### Pass 3 — scroll trigger
+
+```javascript
+window.scrollTo(0, document.body.scrollHeight);
+({ scrolled_to: document.body.scrollHeight, current: window.scrollY });
+```
+
+Then re-run the fingerprint payload.
+
+### Pass 4 — synthesise
+
+The agent compares the three captured `signals` objects and reports:
+
+- Each tracker as `Y (initial)` / `Y (after consent)` / `Y (after scroll)` / `N`
+- The `spa_framework` value (one of: next, nuxt, remix, sveltekit, react, vue, none)
+- `body_text_len` from initial vs final pass — large delta (>2x) signals JS-rendered content the static curl missed
+- `injected_scripts` — full URL list, deduped across passes
+- If `body_text_len` doubled or more after navigation, flag the site as "JS-rendered (SPA-like)" and note that any text-based extraction MUST come from `browser_console`/`vision_analyze`, not curl
+
+### Three-state output rule still applies
+
+If `browser_console` itself fails, every signal is `fetch failed: <error>`, not Y/N defaults. If the consent click fails (no candidate found), report `consent_pass: not present`, not `consent_pass: failed`.
 
 ## Output rule (three states, no fabrication)
 
@@ -80,7 +144,9 @@ Title, meta description, OG card preview, canonical, schema.org `@types` from JS
 
 Server header, X-Powered-By, generator meta, framework fingerprints (`/_next/`, `/wp-content/`, `cdn.shopify.com`, Webflow, Squarespace, etc.), fonts (grep HTML for `font-family:` declarations and `<link>` tags ending `.woff2` or `.woff`), CDN, SSL cert issuer.
 
-**Tracking + analytics:** report findings from BOTH layers — static (HTML scripts visible to curl) AND dynamic (the `browser_console` fingerprint above). Static-only catches GTM containers but misses the pixels GTM loads. Dynamic catches the runtime truth. Most modern sites need the dynamic check or the audit under-reports the stack. List the static finds first, then the runtime signals (Y/N per known signature, plus the `injected_scripts` URL list).
+**SPA / JS-rendered content:** report `spa_framework` from the dynamic fingerprint (next / nuxt / remix / sveltekit / react / vue / none) AND the `body_text_len` delta between static HTML and runtime DOM. If the runtime DOM has 2x+ the text content of the static HTML, flag the site as JS-rendered and note that all content extraction came from the runtime DOM, not curl.
+
+**Tracking + analytics:** report findings from BOTH layers — static (HTML scripts visible to curl) AND dynamic (the four-pass `browser_console` fingerprint above). Static-only catches GTM containers but misses the pixels GTM loads. Dynamic catches the runtime truth. Most modern sites need the dynamic check or the audit under-reports the stack. List the static finds first, then the runtime signals (Y/N per known signature, with `triggered_by: initial | consent | scroll`, plus the deduped `injected_scripts` URL list).
 
 ### 4. Content + brand voice
 
@@ -114,7 +180,7 @@ One Telegram message, ~1500-2000 chars, sectioned with bold headers. Use plain `
 
 ## Iteration history
 
-See [ITERATIONS-website-analysis.md](../ITERATIONS-website-analysis.md) for the full five-run story, including what each version got wrong and which patch fixed it.
+See [ITERATIONS-website-analysis.md](../ITERATIONS-website-analysis.md) for the full six-run story, including what each version got wrong and which patch fixed it.
 
 Quick summary:
 
@@ -123,11 +189,14 @@ Quick summary:
 - **v3** — added strict "no fabrication" rule. Caught the agent fabricating trust-page 404s when curl wasn't installed.
 - **v4** — distinguished `fetch failed` vs `not present`, added `-L` flag to all curl commands so they follow redirects, made mobile reflow a hard required step.
 - **v5** — added a Required dynamic-fingerprinting block via `browser_console`. Caught the agent under-reporting analytics + tracking pixels because curl never executes the JavaScript that injects them.
+- **v6** — extended the dynamic fingerprint to four passes (initial / post-consent / post-scroll / synthesise). Closes consent-gated and scroll-gated trackers, plus surfaces SPA-rendered content via a body_text_len delta check.
 
-## Known minor gaps in v5
+## Known minor gaps in v6
 
-- **Fonts detection** sometimes returns "not present" when the site does use fonts. The current grep pattern misses font declarations inside CSS modules. Open to a v6 patch.
+- **Fonts detection** sometimes returns "not present" when the site does use fonts. The grep pattern misses font declarations inside CSS modules. Still open.
 - **Trust pages check** doesn't check for in-page anchor sections (e.g. `#contact` on a single-page landing site). Reports 404s correctly, but a single-page site with embedded contact info will look more compliance-thin than it actually is.
-- **Dynamic fingerprinting signature list** is finite (8 known trackers + an `injected_scripts` regex). New tools or rebrands won't be caught until the signature list is updated. Treat it as a known floor, not a ceiling.
+- **Consent banner clicker** uses a heuristic regex on visible button text. Sites with shadow-DOM consent UIs (OneTrust, Cookiebot in some configurations) won't be caught. The fallback is honest reporting (`consent_pass: not present`), not failure to function.
+- **Dynamic fingerprinting signature list** is finite. New trackers or rebrands won't be caught until the signature list is updated. Floor, not ceiling.
+- **Interaction beyond scroll** — pixels triggered by hover, form-focus, video-play, or button-click (other than the consent banner) are still invisible. v7 territory if it next bites.
 
 If you patch any of these and it works, send me the diff or open a PR.

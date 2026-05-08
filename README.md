@@ -10,7 +10,7 @@ If you're new to Hermes, run through the [Hermes Agent setup](https://github.com
 
 | Skill | What it does | Native tools used |
 |-------|--------------|-------------------|
-| [website-analysis](skills/website-analysis.md) | Deep website audit (SEO, tech stack, brand voice, UX, performance) — static + dynamic fingerprinting, no third-party API keys | `terminal`, `web_extract`, `browser_navigate`, `browser_snapshot`, `browser_console`, `vision_analyze`, `web_search` |
+| [website-analysis](skills/website-analysis.md) (v6) | Deep website audit (SEO, tech stack, brand voice, UX, performance) — four-pass dynamic fingerprinting handles consent banners, scroll-gated trackers, and SPAs | `terminal`, `web_extract`, `browser_navigate`, `browser_snapshot`, `browser_console`, `vision_analyze`, `web_search` |
 
 More coming. Each new skill ships with its own iteration log so you can see what went wrong on the way to working.
 
@@ -36,6 +36,14 @@ curl -sL https://raw.githubusercontent.com/jennifer509/hermes-on-nunet/main/skil
 ```
 
 Hermes picks up new skill files on the next message. No restart needed.
+
+### Option 3 — Update an existing skill via Telegram
+
+If you already have a previous version of a skill in `~/.hermes/skills/` and just want the latest version, message your Hermes bot:
+
+> Update my website-analysis skill to the latest version. Run this in your terminal tool: `curl -sL https://raw.githubusercontent.com/jennifer509/hermes-on-nunet/main/skills/website-analysis.md -o ~/.hermes/skills/website-analysis.md`. Then confirm the version number from the title of the new file.
+
+The agent runs the curl via its terminal tool, the file gets overwritten, the new version is live on the next message. No shell access needed on your end.
 
 ## Why this repo exists
 
