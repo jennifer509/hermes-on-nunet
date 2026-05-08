@@ -4,7 +4,7 @@ Operator-flavoured skills for [Hermes Agent](https://github.com/NousResearch/her
 
 This repo is a working notebook. Each skill in here was written for a real workflow, then patched until the output was actually trustworthy. The iteration history is part of the artifact: the prompt files include the patches that got them to v-current, and dedicated ITERATIONS docs walk through what failed in earlier rounds and why.
 
-These skills work with any Hermes agent that's running with an active Telegram gateway. The fastest way to get one is via [agents.nunet.network](https://community.nunet.io/agents) — NuNet's alpha — which handles the install, gateway, and model setup in about 60 seconds, no terminal needed. Self-hosting works too; both paths are documented below.
+These skills work with any Hermes agent that's running with an active Telegram gateway. The fastest way to get one is via [agents.nunet.network](https://agents.nunet.network) — NuNet's alpha — which handles the install, gateway, and model setup in about 60 seconds, no terminal needed. Self-hosting works too; both paths are documented below.
 
 ## Skills in this repo
 
@@ -90,7 +90,7 @@ v7 isn't a regression of v6 — it's the same skill plus six guardrails that pro
 
 ## Built on
 
-These skills run on [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous Research). For an alpha agent platform that does this kind of operator-friendly setup at the platform level, see [community.nunet.io/agents](https://community.nunet.io/agents), running on NuNet's distributed compute network. Currently in alpha, sign-ups open.
+These skills run on [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous Research). For an alpha agent platform that does this kind of operator-friendly setup at the platform level, see [agents.nunet.network](https://agents.nunet.network), running on NuNet's distributed compute network. Currently in alpha, sign-ups open.
 
 ## License
 
