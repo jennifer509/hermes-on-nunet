@@ -4,7 +4,7 @@ Operator-flavoured skills for [Hermes Agent](https://github.com/NousResearch/her
 
 This repo is a working notebook. Each skill in here was written for a real workflow, then patched until the output was actually trustworthy. The iteration history is part of the artifact: the prompt files include the patches that got them to v-current, and dedicated ITERATIONS docs walk through what failed in earlier rounds and why.
 
-If you're new to Hermes, run through the [Hermes Agent setup](https://github.com/NousResearch/hermes-agent) first. These skills assume you have a working install and an active Telegram gateway.
+These skills work with any Hermes agent that's running with an active Telegram gateway. The fastest way to get one is via [agents.nunet.network](https://community.nunet.io/agents) — NuNet's alpha — which handles the install, gateway, and model setup in about 60 seconds, no terminal needed. Self-hosting works too; both paths are documented below.
 
 ## Skills in this repo
 
@@ -16,18 +16,28 @@ More coming. Each new skill ships with its own iteration log so you can see what
 
 ## How to use a skill
 
-Two ways. Pick whichever fits your workflow.
+Skills install as text files into your Hermes agent's `~/.hermes/skills/` directory. The agent picks up new skill files on the next message — no restart needed.
 
-### Option 1 — Paste-and-create (the lazy way)
+### If you deployed via agents.nunet.network (the recommended path)
+
+You manage the agent through Telegram. No shell access on the host, and you don't need any.
+
+To install a skill:
 
 1. Open the skill file in this repo, e.g. [`skills/website-analysis.md`](skills/website-analysis.md).
 2. Copy the full contents.
-3. In your Telegram chat with Hermes, send: "Create a new skill called `website-analysis` and save it to `~/.hermes/skills/website-analysis.md` with this content:" then paste.
-4. Hermes will create the file. Trigger it next time with whatever the skill's trigger phrase is (each skill documents its own).
+3. In your Telegram chat with the agent, send: "Create a new skill called `website-analysis` and save it to `~/.hermes/skills/website-analysis.md` with this content:" then paste.
+4. The agent creates the file. Trigger it next time with the skill's documented trigger phrase.
 
-### Option 2 — Drop-in (the fast way)
+To update a skill that's already installed:
 
-If you have shell access to the host running Hermes:
+> Send to your Hermes bot: "Update my website-analysis skill to the latest version. Run this in your terminal tool: `curl -sL https://raw.githubusercontent.com/jennifer509/hermes-on-nunet/main/skills/website-analysis.md -o ~/.hermes/skills/website-analysis.md`. Then confirm the version number from the title of the new file."
+
+The agent runs the curl via its `terminal` tool, the file gets overwritten, the new version is live on the next message. No shell access needed on your end.
+
+### If you're self-hosting Hermes
+
+If you installed Hermes yourself and have shell access to the host:
 
 ```bash
 mkdir -p ~/.hermes/skills
@@ -35,15 +45,7 @@ curl -sL https://raw.githubusercontent.com/jennifer509/hermes-on-nunet/main/skil
   -o ~/.hermes/skills/website-analysis.md
 ```
 
-Hermes picks up new skill files on the next message. No restart needed.
-
-### Option 3 — Update an existing skill via Telegram
-
-If you already have a previous version of a skill in `~/.hermes/skills/` and just want the latest version, message your Hermes bot:
-
-> Update my website-analysis skill to the latest version. Run this in your terminal tool: `curl -sL https://raw.githubusercontent.com/jennifer509/hermes-on-nunet/main/skills/website-analysis.md -o ~/.hermes/skills/website-analysis.md`. Then confirm the version number from the title of the new file.
-
-The agent runs the curl via its terminal tool, the file gets overwritten, the new version is live on the next message. No shell access needed on your end.
+Same install pattern, just direct from the shell.
 
 ## Why this repo exists
 
@@ -81,10 +83,6 @@ I caught this myself after v6 shipped and the repo started getting picked up. Be
 - **Pick the right targets.** Audit sites you own, sites you have written permission for, or public-facing marketing pages of public companies. Don't audit personal blogs, gov/healthcare/financial sites you have no engagement with, or anything you'd be uncomfortable defending if challenged. The skill can't know whether you have permission — it can only ask.
 - **Don't override the robots.txt confirmation unless you actually have written permission.** The pre-flight asks because the site asked. Saying yes anyway is on you, not the skill.
 - **Watch the per-host cap when you stack skills.** v7 enforces caps within each skill. If you're running `website-analysis` AND `competitor-compare` AND `content-monitor` against the same domain in the same window, the per-skill caps don't aggregate. v8 patch on the way (a shared `~/hermes-audit-ledger.json`).
-
-### If you're running on a NuNet compute node
-
-The IP is shared with other workloads on the same node. Bad audit behaviour can land *other* people's deployments on a blocklist. Be especially conservative — when in doubt, audit one URL, sleep, audit another. Five minutes saved isn't worth a co-tenant's outage.
 
 ### Where this came from
 
